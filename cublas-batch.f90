@@ -1,5 +1,3 @@
-! most of this code originates from a code example at
-! https://forums.developer.nvidia.com/t/openacc-with-cublas-batched-routine-in-fortran/135158
 program main
     USE CUDA_GEMM_BATCHED_MOD
     USE CUDA_DEVICE_MOD
@@ -10,85 +8,67 @@ program main
     use ieee_arithmetic
     implicit none
  
-    integer(KIND=JPIM) :: dim, stat, i, j, k, batch_count, stride
-    real(KIND=JPRM),dimension(:,:,:), allocatable :: A, B, C
-    real(KIND=JPRM) :: alpha, beta, index, sum
+    integer(KIND=JPIM) :: R_NDGNH,IF_FS_INV,IF_FS_INV0,R_NTMAX,R_NSMAX,ITDZCA, &
+        & ILDZBS,ITDZBA,LDZAA,TDZAS,ILDZCS,D_NUMP
+    integer(KIND=JPIM) :: ILDZBA,TDZAA,ILDZCA
+    integer(KIND=JPIM) :: ILDZBA2,TDZAA2,ILDZCA2 ! this should be KIND=JPIB, but somehow it doesn't work then
+    real(KIND=JPRM),dimension(:), allocatable :: IZBS,IZCST
+    real(KIND=JPRM),dimension(:,:,:), allocatable :: ZAA
  
-    !Linear dimension of matrices
-    dim = 100
+    R_NDGNH = 80
+    IF_FS_INV = 4
+    IF_FS_INV0 = 1924
+    R_NTMAX = 79
+    R_NSMAX = 79
+    ITDZCA = IF_FS_INV
+    ILDZCA = R_NDGNH
+    ILDZBA = (R_NSMAX+2)/2
+    ILDZBS = (R_NSMAX+3)/2
+    ITDZBA = IF_FS_INV
+    LDZAA = R_NDGNH
+    TDZAA = (R_NTMAX+2)/2
+    TDZAS = (R_NTMAX+3)/2
+    ILDZCS = ILDZCA
+    D_NUMP = R_NDGNH
+    ILDZBA2 = ILDZBA
+    TDZAA2 = TDZAA
+    ILDZCA2 = ILDZCA
 
-    stride = 0
- 
-    ! Number of A,B,C matrix sets
-    batch_count = 1000
- 
-    ! Allocate host storage for A,B,C square matrices
-    allocate(A(dim,dim,batch_count))
-    allocate(B(dim,dim,batch_count))
-    allocate(C(dim,dim,batch_count))
+    ! Allocate host storage for IZBS,ZAA,IZCST matrices
+    allocate(IZBS(IF_FS_INV0*ILDZBS*D_NUMP))
+    allocate(ZAA(LDZAA,TDZAA,D_NUMP))
+    allocate(IZCST(IF_FS_INV0*ILDZCS*D_NUMP))
     
-    !$acc enter data create(A,B,C)
+    !$acc enter data create(IZBS,ZAA,IZCST)
  
- 
-    ! Fill A,B diagonals with sin(i) data, C diagonal with cos(i)^2
-    ! Matrices are arranged column major
+    IZBS = 0._JPRM
+    !$acc update device(IZBS)
+    ZAA = 0._JPRM
+    !$acc update device(ZAA)
+    IZCST = 0._JPRM
+    !$acc update device(IZCST)
 
-!$acc data present(A,B,C)
-!$acc kernels
-!$acc loop
-    do k=1,batch_count
-!$acc loop
-        do j=1,dim
-!$acc loop
-            do i=1,dim
-                if (i==j) then
-                    index = real(j*dim + i)
-                    a(i,j,k) = k*sin(index)
-                    b(i,j,k) = sin(index)
-                    c(i,j,k) = k*cos(index) * cos(index)
-                else
-                    a(i,j,k) = 0.0
-                    b(i,j,k) = 0.0
-                    c(i,j,k) = 0.0
-                endif
-            enddo ! i
-        enddo ! j
-    enddo ! k
+    ! printing parameters to check against full simulation:
+    print*,'ITDZCA,ILDZCA,ILDZBA=',ITDZCA,ILDZCA,ILDZBA
+    print*,'shape(IZBS)=',shape(IZBS)
+    print*,'ITDZBA,ILDZBA=',ITDZBA,ILDZBA
+    print*,'shape(ZAA)=',shape(ZAA)
+    print*,'LDZAA,TDZAA=',LDZAA,TDZAA
+    print*,'shape(IZCST)=',shape(IZCST)
+    print*,'ITDZCA,ILDZCA,D_NUMP=',ITDZCA,ILDZCA,D_NUMP
+    
+    !$acc data present(IZBS,ZAA,IZCST)
 
-!$acc end kernels
- 
+    !$acc host_data use_device(IZBS,ZAA,IZCST)
+    CALL CUDA_GEMM_BATCHED('N','T',ITDZCA,ILDZCA,ILDZBA,1.0_JPRM,IZBS,ITDZBA,ILDZBA2,&
+          & ZAA,LDZAA,TDZAA2,0._JPRM,IZCST,ITDZCA,ILDZCA2,D_NUMP)
+    !$acc end host_data
 
-    ! Set matrix coefficients
-    alpha = 1.0
-    beta = 1.0
- 
-    ! batched DGEMM: C = alpha*A*B + beta*C
+    !$acc end data
 
-!$acc host_data use_device(A,B,C)
-    CALL CUDA_GEMM_BATCHED('N','N',dim,dim,dim,alpha,&
-        A,dim,stride,B,dim,stride,beta,C,dim,stride,batch_count)
-!$acc end host_data
-
-    ! Simple sanity test, sum up all elements
-    sum = 0.0
-!$acc kernels
-!$acc loop
-    do k=1,batch_count
-!$acc loop
-        do j=1,dim
-            do i=1,dim
-                sum = sum + C(i,j,k)
-            enddo
-        enddo
-    enddo
-!$acc end kernels
-    !print *, "Sum is:", sum, "should be: ", dim*(batch_count)*(batch_count+1)/2
-
-!$acc end data
- 
-!$acc exit data delete(A,B,C)
-    deallocate(A)
-    deallocate(B)
-    deallocate(C)
+    !$acc exit data delete(IZBS,ZAA,IZCST)
+    deallocate(IZBS)
+    deallocate(ZAA)
+    deallocate(IZCST)
 
 end program
