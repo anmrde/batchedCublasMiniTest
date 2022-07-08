@@ -8,14 +8,14 @@ program main
     USE ISO_C_BINDING
     use ieee_arithmetic
     implicit none
- 
+
     integer(KIND=c_int) :: R_NDGNH,IF_FS_INV,IF_FS_INV0,R_NTMAX,R_NSMAX,ITDZCA, &
         & ILDZBS,ITDZBA,LDZAA,TDZAS,ILDZCS,D_NUMP
     integer(KIND=c_int) :: ILDZBA,TDZAA,ILDZCA
     integer(KIND=c_long_long) :: ILDZBA2,TDZAA2,ILDZCA2
     real(KIND=c_float),dimension(:,:,:), allocatable :: IZBS,IZCST
     real(KIND=c_float),dimension(:,:,:), allocatable :: ZAA
- 
+
     R_NDGNH = 80
     IF_FS_INV = 4
     IF_FS_INV0 = 1924
@@ -39,13 +39,13 @@ program main
     allocate(IZBS(IF_FS_INV0,ILDZBS,D_NUMP))
     allocate(ZAA(LDZAA,TDZAA,D_NUMP))
     allocate(IZCST(IF_FS_INV0,ILDZCS,D_NUMP))
-    
+
 #ifdef acc
     !$acc enter data create(IZBS,ZAA,IZCST)
 #else
     !$omp target enter data map(alloc:IZBS,ZAA,IZCST)
 #endif
- 
+
     IZBS = 1._c_float
 #ifdef acc
     !$acc update device(IZBS)
@@ -76,7 +76,6 @@ program main
     !$acc host_data use_device(IZBS,ZAA,IZCST)
 #else
     !$omp target data map(alloc:IZBS,ZAA,IZCST)
-    !!$omp target data use_device_addr(IZBS,ZAA,IZCST)
     !$omp target data use_device_ptr(IZBS,ZAA,IZCST)
 #endif
     CALL CUDA_SGEMM_STRIDED_BATCHED('N','T',ITDZCA,ILDZCA,ILDZBA,1._c_float,IZBS,ITDZBA,ILDZBA2,&
@@ -85,6 +84,9 @@ program main
     !$acc end host_data
     !$acc update host(IZCST)
 #else
+    print*,'OpenMP: SGEMM done'
+    !$omp end target data
+    !$omp end target data
     !$omp target update from(IZCST)
 #endif
     print*,'IZCST: sum=',SUM(IZCST(:,:,:))
@@ -92,8 +94,6 @@ program main
     !$acc end data
     !$acc exit data delete(IZBS,ZAA,IZCST)
 #else
-    !$omp end target data
-    !$omp end target data
     !$omp target exit data map(delete:IZBS,ZAA,IZCST)
 #endif
 
