@@ -75,8 +75,9 @@ program main
 #ifdef acc
     !$acc host_data use_device(IZBS,ZAA,IZCST)
 #else
-    !$omp target data use_device_addr(IZBS,ZAA,IZCST)
-    !!$omp target data use_device_ptr(IZBS,ZAA,IZCST)
+    !$omp target data map(alloc:IZBS,ZAA,IZCST)
+    !!$omp target data use_device_addr(IZBS,ZAA,IZCST)
+    !$omp target data use_device_ptr(IZBS,ZAA,IZCST)
 #endif
     CALL CUDA_SGEMM_STRIDED_BATCHED('N','T',ITDZCA,ILDZCA,ILDZBA,1._c_float,IZBS,ITDZBA,ILDZBA2,&
           & ZAA,LDZAA,TDZAA2,0._c_float,IZCST,ITDZCA,ILDZCA2,D_NUMP)
@@ -91,6 +92,7 @@ program main
     !$acc end data
     !$acc exit data delete(IZBS,ZAA,IZCST)
 #else
+    !$omp end target data
     !$omp end target data
     !$omp target exit data map(delete:IZBS,ZAA,IZCST)
 #endif
